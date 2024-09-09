@@ -22,6 +22,9 @@ import net.minidev.json.JSONStyle;
 
 /** Search for credentials in sql and/or other text */
 public class SecretDetector {
+  public static final Pattern PASSWORD_NAME_PATTERN = Pattern.compile(
+          ".*?(password|pwd|token|proxyuser|privatekey|passcode|proxypassword|private_key_base).*?",
+          Pattern.CASE_INSENSITIVE);
   // "\\s*" refers to >= 0 spaces, "[^']" refers to chars other than `'`
   private static final Pattern AWS_KEY_PATTERN =
       Pattern.compile(
@@ -45,7 +48,7 @@ public class SecretDetector {
   private static final Pattern PASSWORD_PATTERN =
       Pattern.compile(
           "(password|passcode|pwd)"
-              + "([\'\"\\s:=]+)"
+              + "(['\"\\s:=]+)"
               + "([a-z0-9!\"#$%&'\\()*+,-./:;<=>?@\\[\\]^_`\\{|\\}~]{6,})",
           Pattern.CASE_INSENSITIVE);
 
@@ -73,7 +76,7 @@ public class SecretDetector {
   // only attempt to find secrets in its leading 100Kb SNOW-30961
   private static final int MAX_LENGTH = 100 * 1000;
 
-  private static String[] SENSITIVE_NAMES = {
+  private static final String[] SENSITIVE_NAMES = {
     "access_key_id",
     "accesstoken",
     "aws_key_id",
@@ -90,7 +93,7 @@ public class SecretDetector {
     "temptoken",
   };
 
-  private static Set<String> SENSITIVE_NAME_SET = new HashSet<>(Arrays.asList(SENSITIVE_NAMES));
+  private static final Set<String> SENSITIVE_NAME_SET = new HashSet<>(Arrays.asList(SENSITIVE_NAMES));
 
   /**
    * Check whether the name is sensitive
@@ -110,12 +113,7 @@ public class SecretDetector {
    * @return true if the parameter should be masked
    */
   private static boolean isSensitiveParameter(String name) {
-    Pattern PASSWORD_IN_NAME =
-        Pattern.compile(
-            ".*?(password|pwd|token|proxyuser|privatekey|passcode|proxypassword|private_key_base).*?",
-            Pattern.CASE_INSENSITIVE);
-    Matcher matcher = PASSWORD_IN_NAME.matcher(name);
-    return isSensitive(name) || matcher.matches();
+    return isSensitive(name) || hasSensitiveKeywoards(name);
   }
 
   /**
@@ -134,9 +132,13 @@ public class SecretDetector {
     return value;
   }
 
+  private static boolean hasSensitiveKeywoards(String name) {
+    return PASSWORD_NAME_PATTERN.matcher(name).matches();
+  }
+
   private static String filterAWSKeys(String text) {
     Matcher matcher =
-        AWS_KEY_PATTERN.matcher(text.length() <= MAX_LENGTH ? text : text.substring(0, MAX_LENGTH));
+        AWS_KEY_PATTERN.matcher(limitStringLength(text));
 
     if (matcher.find()) {
       return matcher.replaceAll("$1$2'****'");
@@ -147,7 +149,7 @@ public class SecretDetector {
   private static String filterSASTokens(String text) {
     Matcher matcher =
         SAS_TOKEN_PATTERN.matcher(
-            text.length() <= MAX_LENGTH ? text : text.substring(0, MAX_LENGTH));
+                limitStringLength(text));
 
     if (matcher.find()) {
       return matcher.replaceAll("$1=****");
@@ -158,7 +160,7 @@ public class SecretDetector {
   private static String filterPassword(String text) {
     Matcher matcher =
         PASSWORD_PATTERN.matcher(
-            text.length() <= MAX_LENGTH ? text : text.substring(0, MAX_LENGTH));
+                limitStringLength(text));
 
     if (matcher.find()) {
       return matcher.replaceAll("$1$2**** ");
@@ -169,7 +171,7 @@ public class SecretDetector {
   private static String filterConnectionTokens(String text) {
     Matcher matcher =
         CONNECTION_TOKEN_PATTERN.matcher(
-            text.length() <= MAX_LENGTH ? text : text.substring(0, MAX_LENGTH));
+                limitStringLength(text));
 
     if (matcher.find()) {
       return matcher.replaceAll("$1$2****");
@@ -308,8 +310,12 @@ public class SecretDetector {
     return node;
   }
 
+  private static String limitStringLength(String text) {
+    return text.length() <= MAX_LENGTH ? text : text.substring(0, MAX_LENGTH);
+  }
   // This class aims to parse minidev.json's node better
   public static class SecretDetectorJSONStyle extends JSONStyle {
+
     public SecretDetectorJSONStyle() {
       super();
     }
